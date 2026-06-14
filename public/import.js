@@ -48,6 +48,9 @@ const TEXT = {
   editChapter: '\u7ae0\u8282\u7f16\u8f91',
   comments: '\u8bc4\u8bba',
   noComments: '\u6682\u65e0\u8bc4\u8bba',
+  approveComment: '\u901a\u8fc7',
+  approvedComment: '\u5df2\u901a\u8fc7',
+  pendingComment: '\u5f85\u5ba1\u6279',
   deleteComment: '\u5220\u9664',
   deleteCommentConfirm: '\u5220\u9664\u8fd9\u6761\u8bc4\u8bba\uff1f',
   anonymous: '\u8bfb\u8005'
@@ -134,9 +137,10 @@ function renderComments(chapter) {
       <div class="admin-comment-list">
         ${(chapter.comments || []).length ? chapter.comments.slice().reverse().map((comment) => `
           <article class="admin-comment-item">
-            <div><strong>${escapeHtml(comment.name || TEXT.anonymous)}</strong><time>${escapeHtml(formatDate(comment.createdAt))}</time></div>
+            <div><strong>${escapeHtml(comment.name || TEXT.anonymous)}</strong><time>${escapeHtml(formatDate(comment.createdAt))} \u00b7 ${comment.approved ? TEXT.approvedComment : TEXT.pendingComment}</time></div>
             <p>${escapeHtml(comment.content || '')}</p>
-            <button class="danger-btn" type="button" data-comment-id="${comment.id}">${TEXT.deleteComment}</button>
+            ${comment.approved ? '' : `<button class="primary-btn" type="button" data-comment-action="approve" data-comment-id="${comment.id}">${TEXT.approveComment}</button>`}
+            <button class="danger-btn" type="button" data-comment-action="delete" data-comment-id="${comment.id}">${TEXT.deleteComment}</button>
           </article>
         `).join('') : `<div class="empty-panel">${TEXT.noComments}</div>`}
       </div>
@@ -300,6 +304,18 @@ async function deleteComment(commentId) {
   render();
 }
 
+async function approveComment(commentId) {
+  const book = activeBook();
+  const chapter = activeChapter();
+  if (!book || !chapter || !commentId) return;
+  const data = await requestJson(`/api/books/${encodeURIComponent(book.id)}/chapters/${encodeURIComponent(chapter.id)}/comments/${encodeURIComponent(commentId)}/approve`, { method: 'POST' });
+  setStatus(TEXT.saveOk);
+  await loadBooks(true);
+  state.activeBookId = data.book.id;
+  state.activeChapterId = chapter.id;
+  render();
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   setStatus(TEXT.saving);
@@ -323,7 +339,8 @@ editor.addEventListener('click', async (event) => {
   const commentButton = event.target.closest('[data-comment-id]');
   if (commentButton) {
     try {
-      await deleteComment(commentButton.dataset.commentId);
+      if (commentButton.dataset.commentAction === 'approve') await approveComment(commentButton.dataset.commentId);
+      else await deleteComment(commentButton.dataset.commentId);
     } catch (error) {
       setStatus(error.message || TEXT.failed);
     }

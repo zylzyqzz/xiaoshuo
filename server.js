@@ -64,6 +64,8 @@ function normalizeLibrary(library) {
         comment.name = String(comment.name || '').trim() || TEXT.anonymous;
         comment.content = String(comment.content || '').trim();
         comment.viewerId = String(comment.viewerId || '').trim();
+        comment.approved = comment.approved === true;
+        comment.approvedAt = comment.approvedAt || null;
         comment.createdAt = comment.createdAt || new Date().toISOString();
       });
       chapter.comments = chapter.comments.filter((comment) => comment.content);
@@ -79,7 +81,7 @@ function libraryForViewer(library, viewerId) {
   if (!viewer) return normalized;
   normalized.books.forEach((book) => {
     (book.chapters || []).forEach((chapter) => {
-      chapter.comments = (chapter.comments || []).filter((comment) => comment.viewerId && comment.viewerId === viewer);
+      chapter.comments = (chapter.comments || []).filter((comment) => comment.approved || (comment.viewerId && comment.viewerId === viewer));
     });
   });
   return normalized;
@@ -314,6 +316,8 @@ async function handleCreateComment(req, res, bookId, chapterId) {
     name: String(payload.name || '').trim() || TEXT.anonymous,
     content,
     viewerId: String(payload.viewerId || '').trim(),
+    approved: false,
+    approvedAt: null,
     createdAt: new Date().toISOString()
   };
   chapter.comments.push(comment);
@@ -321,6 +325,23 @@ async function handleCreateComment(req, res, bookId, chapterId) {
   book.updatedAt = comment.createdAt;
   await writeLibrary(library);
   json(res, 201, { ok: true, comment, book: bookForViewer(book, comment.viewerId) });
+}
+
+async function handleApproveComment(res, bookId, chapterId, commentId) {
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  const chapter = book.chapters.find((item) => item.id === chapterId);
+  if (!chapter) return json(res, 404, { error: 'chapter not found' });
+  const comment = (chapter.comments || []).find((item) => item.id === commentId);
+  if (!comment) return json(res, 404, { error: 'comment not found' });
+  const now = new Date().toISOString();
+  comment.approved = true;
+  comment.approvedAt = now;
+  chapter.updatedAt = now;
+  book.updatedAt = now;
+  await writeLibrary(library);
+  json(res, 200, { ok: true, comment, book: normalizeLibrary({ books: [book] }).books[0] });
 }
 
 async function handleDeleteComment(res, bookId, chapterId, commentId) {
@@ -367,6 +388,8 @@ const server = http.createServer(async (req, res) => {
   if (commentMatch && req.method === 'POST') return handleCreateComment(req, res, decodeURIComponent(commentMatch[1]), decodeURIComponent(commentMatch[2]));
   const commentDeleteMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/comments\/([^/]+)$/);
   if (commentDeleteMatch && req.method === 'DELETE') return handleDeleteComment(res, decodeURIComponent(commentDeleteMatch[1]), decodeURIComponent(commentDeleteMatch[2]), decodeURIComponent(commentDeleteMatch[3]));
+  const commentApproveMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/comments\/([^/]+)\/approve$/);
+  if (commentApproveMatch && req.method === 'POST') return handleApproveComment(res, decodeURIComponent(commentApproveMatch[1]), decodeURIComponent(commentApproveMatch[2]), decodeURIComponent(commentApproveMatch[3]));
   const formatMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/format$/);
   if (formatMatch && req.method === 'POST') return handleUpdateChapter(null, res, decodeURIComponent(formatMatch[1]), decodeURIComponent(formatMatch[2]), { format: true });
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);

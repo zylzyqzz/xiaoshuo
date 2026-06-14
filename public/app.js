@@ -31,6 +31,7 @@ const UI = {
   enterFullscreen: '\u8fdb\u5165\u5168\u5c4f',
   exitFullscreen: '\u9000\u51fa\u5168\u5c4f',
   noComments: '\u6682\u65e0\u8bc4\u8bba',
+  pendingComment: '\u5f85\u5ba1\u6279',
   commentUnit: '\u6761',
   commentFailed: '\u8bc4\u8bba\u53d1\u8868\u5931\u8d25',
   anonymous: '\u8bfb\u8005'
@@ -228,7 +229,7 @@ function renderComments() {
   $('commentsCount').textContent = `${comments.length} ${UI.commentUnit}`;
   $('commentList').innerHTML = comments.length ? comments.slice().reverse().map((comment) => `
     <article class="comment-item">
-      <div><strong>${escapeHtml(comment.name || UI.anonymous)}</strong><time>${escapeHtml(formatDate(comment.createdAt))}</time></div>
+      <div><strong>${escapeHtml(comment.name || UI.anonymous)}</strong><time>${escapeHtml(formatDate(comment.createdAt))}${comment.approved ? '' : ` \u00b7 ${UI.pendingComment}`}</time></div>
       <p>${escapeHtml(comment.content || '')}</p>
     </article>
   `).join('') : `<div class="comment-empty">${UI.noComments}</div>`;
