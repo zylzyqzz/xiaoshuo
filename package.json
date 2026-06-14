@@ -1,0 +1,12 @@
+{
+  "name": "private-novel-reader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "yulin's private novel library.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

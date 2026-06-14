@@ -1,0 +1,250 @@
+const http = require('http');
+const fs = require('fs/promises');
+const path = require('path');
+const crypto = require('crypto');
+
+const ROOT = __dirname;
+const PUBLIC_DIR = path.join(ROOT, 'public');
+const DATA_FILE = path.join(ROOT, 'data', 'library.json');
+const PORT = Number(process.env.PORT || 3000);
+const MAX_BODY = 30 * 1024 * 1024;
+
+const TEXT = {
+  body: '\u6b63\u6587',
+  me: '\u6211',
+  unnamedChapter: '\u672a\u547d\u540d\u7ae0\u8282',
+  defaultPart: '\u7b2c1\u90e8',
+  defaultSection: '\u7b2c1\u7bc7'
+};
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.ico': 'image/x-icon'
+};
+
+function id(prefix) {
+  return `${prefix}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+function send(res, status, body, type = 'application/json; charset=utf-8') {
+  res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' });
+  res.end(body);
+}
+
+function json(res, status, value) {
+  send(res, status, JSON.stringify(value), 'application/json; charset=utf-8');
+}
+
+function normalizeLibrary(library) {
+  library.books = Array.isArray(library.books) ? library.books : [];
+  library.books.forEach((book) => {
+    book.author = book.author || TEXT.me;
+    book.summary = book.summary || '';
+    book.chapters = Array.isArray(book.chapters) ? book.chapters : [];
+    book.chapters.forEach((chapter, index) => {
+      chapter.id = chapter.id || id('chapter');
+      chapter.partTitle = chapter.partTitle || TEXT.defaultPart;
+      chapter.sectionTitle = chapter.sectionTitle || TEXT.defaultSection;
+      chapter.order = Number.isFinite(Number(chapter.order)) ? Number(chapter.order) : index + 1;
+      chapter.title = chapter.title || TEXT.unnamedChapter;
+      chapter.content = chapter.content || '';
+    });
+    book.chapters.sort((a, b) => (a.order || 0) - (b.order || 0));
+  });
+  return library;
+}
+
+async function readLibrary() {
+  try {
+    return normalizeLibrary(JSON.parse(await fs.readFile(DATA_FILE, 'utf8')));
+  } catch (error) {
+    return { books: [] };
+  }
+}
+
+async function writeLibrary(library) {
+  await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
+  await fs.writeFile(DATA_FILE, `${JSON.stringify(normalizeLibrary(library), null, 2)}\n`, 'utf8');
+}
+
+function collectBody(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY) {
+        reject(new Error('body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function splitChapters(text, splitMode = 'single') {
+  const clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!clean) return [];
+  if (splitMode !== 'auto') return [{ title: TEXT.body, content: clean }];
+  const matches = [...clean.matchAll(/(^|\n)(#{1,3}\s*.+|\u7b2c[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u4e03\u516b\u4e5d\u5341\u767e\u5343\u4e07\u96f6\u3007\u4e240-9]+[\u7ae0\u8282\u56de\u5377\u90e8].*)/g)];
+  if (matches.length <= 1) return [{ title: TEXT.body, content: clean }];
+  return matches.map((match, index) => {
+    const start = match.index + match[1].length;
+    const end = matches[index + 1]?.index ?? clean.length;
+    const block = clean.slice(start, end).trim();
+    const [rawTitle, ...body] = block.split('\n');
+    return { title: rawTitle.replace(/^#{1,3}\s*/, '').trim() || `\u7b2c ${index + 1} \u7ae0`, content: body.join('\n').trim() };
+  }).filter((chapter) => chapter.title || chapter.content);
+}
+
+function formatContent(content) {
+  const clean = String(content || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\t/g, '  ')
+    .split('\n')
+    .map((line) => line.trim().replace(/[ ]{2,}/g, ' '))
+    .filter(Boolean)
+    .join('\n\n');
+  if (!clean) return '';
+  if (clean.includes('\n\n')) return clean.replace(/\n{3,}/g, '\n\n');
+  const sentences = clean.match(/[^\u3002\uff01\uff1f!?]+[\u3002\uff01\uff1f!?\u300d\u300f\u201d\u2019]?/g);
+  if (!sentences || sentences.length < 4) return clean;
+  const paragraphs = [];
+  let buffer = '';
+  for (const sentence of sentences) {
+    const next = buffer ? `${buffer}${sentence.trim()}` : sentence.trim();
+    if (next.length >= 220) {
+      paragraphs.push(next);
+      buffer = '';
+    } else {
+      buffer = next;
+    }
+  }
+  if (buffer) paragraphs.push(buffer);
+  return paragraphs.join('\n\n');
+}
+
+async function handleImport(req, res) {
+  try {
+    const payload = JSON.parse(await collectBody(req));
+    const title = String(payload.title || '').trim();
+    const content = String(payload.content || '').trim();
+    if (!title || !content) return json(res, 400, { error: 'title and content are required' });
+    const pieces = splitChapters(content, payload.splitMode);
+    const chapters = pieces.map((chapter, index) => ({
+      id: id('chapter'),
+      partTitle: String(payload.partTitle || '').trim() || TEXT.defaultPart,
+      sectionTitle: String(payload.sectionTitle || '').trim() || TEXT.defaultSection,
+      order: index + 1,
+      title: chapter.title || TEXT.unnamedChapter,
+      content: chapter.content || ''
+    }));
+    const now = new Date().toISOString();
+    const book = {
+      id: id('book'),
+      title,
+      author: String(payload.author || '').trim() || TEXT.me,
+      summary: String(payload.summary || '').trim(),
+      createdAt: now,
+      updatedAt: now,
+      chapters
+    };
+    const library = await readLibrary();
+    library.books.unshift(book);
+    await writeLibrary(library);
+    json(res, 201, { ok: true, book });
+  } catch (error) {
+    json(res, 500, { error: error.message || 'import failed' });
+  }
+}
+
+async function handleUpdateBook(req, res, bookId) {
+  const payload = JSON.parse(await collectBody(req));
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  book.title = String(payload.title || book.title || '').trim() || book.title;
+  book.author = String(payload.author || '').trim() || TEXT.me;
+  book.summary = String(payload.summary || '').trim();
+  book.updatedAt = new Date().toISOString();
+  await writeLibrary(library);
+  json(res, 200, { ok: true, book });
+}
+
+async function handleDeleteBook(res, bookId) {
+  const library = await readLibrary();
+  const before = library.books.length;
+  library.books = library.books.filter((book) => book.id !== bookId);
+  if (library.books.length === before) return json(res, 404, { error: 'book not found' });
+  await writeLibrary(library);
+  json(res, 200, { ok: true });
+}
+
+async function handleUpdateChapter(req, res, bookId, chapterId, options = {}) {
+  const payload = req ? JSON.parse(await collectBody(req)) : {};
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  const chapter = book.chapters.find((item) => item.id === chapterId);
+  if (!chapter) return json(res, 404, { error: 'chapter not found' });
+  if (Object.prototype.hasOwnProperty.call(payload, 'partTitle')) chapter.partTitle = String(payload.partTitle || '').trim() || TEXT.defaultPart;
+  if (Object.prototype.hasOwnProperty.call(payload, 'sectionTitle')) chapter.sectionTitle = String(payload.sectionTitle || '').trim() || TEXT.defaultSection;
+  if (Object.prototype.hasOwnProperty.call(payload, 'order')) chapter.order = Number(payload.order) || 1;
+  if (Object.prototype.hasOwnProperty.call(payload, 'title')) chapter.title = String(payload.title || '').trim() || TEXT.unnamedChapter;
+  if (Object.prototype.hasOwnProperty.call(payload, 'content')) chapter.content = String(payload.content || '');
+  if (options.format) chapter.content = formatContent(chapter.content);
+  book.updatedAt = new Date().toISOString();
+  await writeLibrary(library);
+  json(res, 200, { ok: true, book: normalizeLibrary({ books: [book] }).books[0], chapter });
+}
+
+async function handleDeleteChapter(res, bookId, chapterId) {
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  const before = book.chapters.length;
+  book.chapters = book.chapters.filter((chapter) => chapter.id !== chapterId);
+  if (book.chapters.length === before) return json(res, 404, { error: 'chapter not found' });
+  book.updatedAt = new Date().toISOString();
+  await writeLibrary(library);
+  json(res, 200, { ok: true, book });
+}
+
+async function serveStatic(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
+  const target = path.normalize(path.join(PUBLIC_DIR, pathname));
+  if (!target.startsWith(PUBLIC_DIR)) return send(res, 403, 'Forbidden', 'text/plain; charset=utf-8');
+  try {
+    send(res, 200, await fs.readFile(target), MIME[path.extname(target)] || 'application/octet-stream');
+  } catch (error) {
+    send(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  }
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  if (req.method === 'GET' && url.pathname === '/api/books') return json(res, 200, await readLibrary());
+  if (req.method === 'POST' && url.pathname === '/api/import') return handleImport(req, res);
+  const bookMatch = url.pathname.match(/^\/api\/books\/([^/]+)$/);
+  if (bookMatch && req.method === 'PUT') return handleUpdateBook(req, res, decodeURIComponent(bookMatch[1]));
+  if (bookMatch && req.method === 'DELETE') return handleDeleteBook(res, decodeURIComponent(bookMatch[1]));
+  const chapterMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)$/);
+  if (chapterMatch && req.method === 'PUT') return handleUpdateChapter(req, res, decodeURIComponent(chapterMatch[1]), decodeURIComponent(chapterMatch[2]));
+  if (chapterMatch && req.method === 'DELETE') return handleDeleteChapter(res, decodeURIComponent(chapterMatch[1]), decodeURIComponent(chapterMatch[2]));
+  const formatMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/format$/);
+  if (formatMatch && req.method === 'POST') return handleUpdateChapter(null, res, decodeURIComponent(formatMatch[1]), decodeURIComponent(formatMatch[2]), { format: true });
+  if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
+  send(res, 405, 'Method not allowed', 'text/plain; charset=utf-8');
+});
+
+server.listen(PORT, () => {
+  console.log(`Novel reader running at http://localhost:${PORT}`);
+});

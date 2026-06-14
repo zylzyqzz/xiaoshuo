@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>yulin&#30340;&#31169;&#20154;&#20070;&#24211; - &#31649;&#29702;</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .admin-topbar { position: fixed; inset: 0 0 auto 0; z-index: 5; height: 58px; padding: 8px max(18px, env(safe-area-inset-right)) 8px max(18px, env(safe-area-inset-left)); display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(14px); }
+    .admin-topbar a { width: 40px; height: 40px; border-radius: 999px; display: grid; place-items: center; color: var(--muted); text-decoration: none; }
+    .admin-topbar a:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+    .admin-topbar strong { text-align: center; font-size: 15px; font-weight: 600; }
+    .admin-shell { min-height: 100vh; padding: 92px 22px 36px; display: grid; justify-items: center; }
+    .admin-layout { width: min(1080px, 100%); display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 34px; align-items: start; }
+    .admin-side, .admin-main { display: grid; gap: 22px; }
+    .admin-title { display: grid; gap: 8px; }
+    .admin-title h1, .section-title { margin: 0; font-size: 28px; line-height: 1.25; font-weight: 600; letter-spacing: 0; }
+    .admin-title p { margin: 0; color: var(--muted); line-height: 1.75; }
+    .form-grid, .editor-form { display: grid; gap: 14px; }
+    .field { display: grid; gap: 7px; }
+    .field span { color: var(--muted); font-size: 14px; }
+    .field input, .field textarea, .field select { width: 100%; min-height: 44px; padding: 0 14px; border-radius: 12px; background: color-mix(in srgb, var(--panel) 80%, transparent); border: 1px solid color-mix(in srgb, var(--line) 76%, transparent); outline: none; }
+    .field textarea { min-height: 92px; padding-top: 12px; resize: vertical; line-height: 1.7; }
+    .file-field input { padding: 10px 14px; }
+    .primary-btn { min-height: 44px; background: var(--ink); color: var(--bg); border-radius: 999px; }
+    .ghost-btn { min-height: 38px; color: var(--muted); background: var(--panel-soft); }
+    .danger-btn { min-height: 38px; color: #a4473e; background: color-mix(in srgb, #a4473e 8%, transparent); }
+    .row-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    #status { min-height: 24px; color: var(--accent); line-height: 1.7; }
+    .library-list, .chapter-list { display: grid; gap: 8px; }
+    .book-button, .chapter-button { width: 100%; text-align: left; border-radius: 8px; padding: 11px 10px; display: grid; gap: 5px; }
+    .book-button.active, .chapter-button.active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    .book-button strong, .chapter-button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .book-button span, .chapter-button span { color: var(--muted); font-size: 13px; }
+    .editor-card { display: grid; gap: 18px; }
+    .editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .chapter-editor { display: grid; gap: 12px; }
+    #chapterContent { min-height: 42vh; font-family: inherit; font-size: 17px; line-height: 1.8; }
+    .empty-panel { color: var(--muted); padding: 38px 0; text-align: center; }
+    @media (max-width: 860px) { .admin-layout { grid-template-columns: 1fr; gap: 28px; } .admin-shell { padding: 84px 18px 28px; } .admin-title h1 { font-size: 27px; } }
+  </style>
+</head>
+<body>
+  <header class="admin-topbar">
+    <a href="/" aria-label="&#36820;&#22238;&#38405;&#35835;"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+    <strong>yulin&#30340;&#31169;&#20154;&#20070;&#24211;</strong>
+    <span></span>
+  </header>
+  <main class="admin-shell">
+    <div class="admin-layout">
+      <aside class="admin-side">
+        <section class="admin-title">
+          <h1>&#20070;&#24211;&#31649;&#29702;</h1>
+          <p>&#19978;&#20256;&#12289;&#32534;&#36753;&#12289;&#21024;&#38500;&#65292;&#20445;&#25345;&#31616;&#21333;&#12290;</p>
+        </section>
+        <form id="importForm" class="form-grid">
+          <label class="field file-field"><span>&#25991;&#20214;</span><input id="file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" required></label>
+          <label class="field"><span>&#20316;&#21697;&#21517;</span><input id="title" placeholder="&#30041;&#31354;&#20351;&#29992;&#25991;&#20214;&#21517;"></label>
+          <label class="field"><span>&#20316;&#32773;</span><input id="author" placeholder="&#25105;"></label>
+          <label class="field"><span>&#31616;&#20171;</span><textarea id="summary" placeholder="&#21487;&#36873;"></textarea></label>
+          <button class="primary-btn" type="submit">&#23548;&#20837;</button>
+          <div id="status"></div>
+        </form>
+        <section>
+          <div class="editor-head"><h2 class="section-title">&#24050;&#19978;&#20256;</h2><button class="ghost-btn" id="refreshBooks" type="button">&#21047;&#26032;</button></div>
+          <div id="bookList" class="library-list"></div>
+        </section>
+      </aside>
+      <section class="admin-main">
+        <div id="editor" class="editor-card"></div>
+      </section>
+    </div>
+  </main>
+  <script src="/import.js"></script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>yulin&#30340;&#31169;&#20154;&#20070;&#24211;</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <button class="icon-button" id="openShelf" aria-label="&#25171;&#24320;&#30446;&#24405;">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      </button>
+      <div class="site-title">
+        <strong id="topBookTitle">yulin&#30340;&#31169;&#20154;&#20070;&#24211;</strong>
+        <span id="bookMeta">&#21152;&#36733;&#20013;</span>
+      </div>
+      <div class="top-actions">
+        <button class="icon-button" id="openSettings" aria-label="&#38405;&#35835;&#35774;&#32622;">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"></path><path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.05.05a2.1 2.1 0 0 1-2.97 2.97l-.05-.05a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.09 1.65V21a2.1 2.1 0 0 1-4.2 0v-.08A1.8 1.8 0 0 0 8.4 19.3a1.8 1.8 0 0 0-2 .36l-.05.05a2.1 2.1 0 1 1-2.97-2.97l.05-.05a1.8 1.8 0 0 0 .36-2A1.8 1.8 0 0 0 2.1 13H2a2.1 2.1 0 0 1 0-4.2h.08A1.8 1.8 0 0 0 3.7 7.7a1.8 1.8 0 0 0-.36-2l-.05-.05a2.1 2.1 0 1 1 2.97-2.97l.05.05a1.8 1.8 0 0 0 2 .36A1.8 1.8 0 0 0 9.4 1.5V1.4a2.1 2.1 0 0 1 4.2 0v.08a1.8 1.8 0 0 0 1.09 1.65 1.8 1.8 0 0 0 2-.36l.05-.05a2.1 2.1 0 1 1 2.97 2.97l-.05.05a1.8 1.8 0 0 0-.36 2A1.8 1.8 0 0 0 21 8.8h.1a2.1 2.1 0 0 1 0 4.2H21a1.8 1.8 0 0 0-1.6 2Z"></path></svg>
+        </button>
+        <button class="icon-button" id="fullscreenBtn" aria-label="&#20840;&#23631;&#38405;&#35835;">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"></path></svg>
+        </button>
+      </div>
+    </header>
+    <div class="read-progress" aria-hidden="true"><span id="readProgressBar"></span></div>
+
+    <aside class="shelf" id="shelf">
+      <div class="shelf-head">
+        <h1>&#30446;&#24405;</h1>
+        <button class="icon-button" id="closeShelf" aria-label="&#20851;&#38381;&#30446;&#24405;">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+        </button>
+      </div>
+      <input id="search" class="search" type="search" placeholder="&#25628;&#32034;&#31456;&#33410;">
+      <div id="bookList" class="book-list"></div>
+    </aside>
+
+    <main class="reader-shell">
+      <section class="reader-head">
+        <div>
+          <p id="bookTitle" class="book-title">&#26410;&#36873;&#25321;&#20316;&#21697;</p>
+          <h2 id="chapterTitle">&#26410;&#36873;&#25321;&#31456;&#33410;</h2>
+          <p id="chapterProgress" class="chapter-progress"></p>
+        </div>
+        <select id="chapterSelect" aria-label="&#31456;&#33410;&#30446;&#24405;"></select>
+      </section>
+
+      <article id="reader" class="reader"></article>
+
+      <section class="reader-foot">
+        <span id="readingProgressText">0%</span>
+        <button id="topButton" type="button">&#22238;&#21040;&#39030;&#37096;</button>
+      </section>
+
+      <nav class="chapter-nav" aria-label="&#31456;&#33410;&#20999;&#25442;">
+        <button id="prevChapter">&#19978;&#19968;&#31456;</button>
+        <button id="chapterMenu">&#30446;&#24405;</button>
+        <button id="nextChapter">&#19979;&#19968;&#31456;</button>
+      </nav>
+    </main>
+  </div>
+
+  <aside class="settings-panel" id="settingsPanel" aria-hidden="true">
+    <div class="settings-head">
+      <h2>&#38405;&#35835;&#35774;&#32622;</h2>
+      <button class="icon-button" id="closeSettings" aria-label="&#20851;&#38381;&#35774;&#32622;">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+      </button>
+    </div>
+    <div class="setting-row">
+      <span>&#20840;&#23631;</span>
+      <button id="fullscreenToggle">&#36827;&#20837;&#20840;&#23631;</button>
+    </div>
+    <label class="setting-row"><span>&#23383;&#21495;</span><div class="setting-control"><input id="fontSize" type="range" min="16" max="26" value="19"><output id="fontSizeValue">19px</output></div></label>
+    <label class="setting-row"><span>&#34892;&#36317;</span><div class="setting-control"><input id="lineHeight" type="range" min="16" max="24" value="20"><output id="lineHeightValue">2.0</output></div></label>
+    <label class="setting-row"><span>&#23485;&#24230;</span><input id="readerWidth" type="range" min="620" max="920" value="760"></label>
+    <label class="setting-row"><span>&#32972;&#26223;</span><select id="themeSelect"><option value="paper">&#32440;&#39029;</option><option value="green">&#38738;&#30333;</option><option value="night">&#22812;&#38388;</option></select></label>
+  </aside>
+
+  <div id="scrim" class="scrim"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
