@@ -14,7 +14,8 @@ const TEXT = {
   me: '\u6211',
   unnamedChapter: '\u672a\u547d\u540d\u7ae0\u8282',
   defaultPart: '\u7b2c1\u90e8',
-  defaultSection: '\u7b2c1\u7bc7'
+  defaultSection: '\u7b2c1\u7bc7',
+  anonymous: '\u8bfb\u8005'
 };
 
 const MIME = {
@@ -40,10 +41,13 @@ function json(res, status, value) {
 }
 
 function normalizeLibrary(library) {
+  const now = new Date().toISOString();
   library.books = Array.isArray(library.books) ? library.books : [];
   library.books.forEach((book) => {
     book.author = book.author || TEXT.me;
     book.summary = book.summary || '';
+    book.createdAt = book.createdAt || book.updatedAt || now;
+    book.updatedAt = book.updatedAt || book.createdAt || now;
     book.chapters = Array.isArray(book.chapters) ? book.chapters : [];
     book.chapters.forEach((chapter, index) => {
       chapter.id = chapter.id || id('chapter');
@@ -52,10 +56,62 @@ function normalizeLibrary(library) {
       chapter.order = Number.isFinite(Number(chapter.order)) ? Number(chapter.order) : index + 1;
       chapter.title = chapter.title || TEXT.unnamedChapter;
       chapter.content = chapter.content || '';
+      chapter.createdAt = chapter.createdAt || book.createdAt || now;
+      chapter.updatedAt = chapter.updatedAt || book.updatedAt || chapter.createdAt || now;
+      chapter.comments = Array.isArray(chapter.comments) ? chapter.comments : [];
+      chapter.comments.forEach((comment) => {
+        comment.id = comment.id || id('comment');
+        comment.name = String(comment.name || '').trim() || TEXT.anonymous;
+        comment.content = String(comment.content || '').trim();
+        comment.viewerId = String(comment.viewerId || '').trim();
+        comment.createdAt = comment.createdAt || new Date().toISOString();
+      });
+      chapter.comments = chapter.comments.filter((comment) => comment.content);
     });
     book.chapters.sort((a, b) => (a.order || 0) - (b.order || 0));
   });
   return library;
+}
+
+function libraryForViewer(library, viewerId) {
+  const normalized = normalizeLibrary(JSON.parse(JSON.stringify(library || { books: [] })));
+  const viewer = String(viewerId || '').trim();
+  if (!viewer) return normalized;
+  normalized.books.forEach((book) => {
+    (book.chapters || []).forEach((chapter) => {
+      chapter.comments = (chapter.comments || []).filter((comment) => comment.viewerId && comment.viewerId === viewer);
+    });
+  });
+  return normalized;
+}
+
+function bookForViewer(book, viewerId) {
+  return libraryForViewer({ books: [book] }, viewerId).books[0];
+}
+
+function primaryBook(library) {
+  return library.books?.[0] || null;
+}
+
+function nextChapterOrder(book) {
+  return (book.chapters || []).reduce((max, chapter) => Math.max(max, Number(chapter.order) || 0), 0) + 1;
+}
+
+function makeChapter(payload, book) {
+  const order = nextChapterOrder(book || { chapters: [] });
+  const title = String(payload.chapterTitle || payload.title || '').trim();
+  const now = new Date().toISOString();
+  return {
+    id: id('chapter'),
+    partTitle: String(payload.partTitle || '').trim() || book?.chapters?.[book.chapters.length - 1]?.partTitle || TEXT.defaultPart,
+    sectionTitle: String(payload.sectionTitle || '').trim() || book?.chapters?.[book.chapters.length - 1]?.sectionTitle || TEXT.defaultSection,
+    order,
+    title: title || `\u7b2c${order}\u7ae0`,
+    content: String(payload.content || '').trim(),
+    createdAt: now,
+    updatedAt: now,
+    comments: []
+  };
 }
 
 async function readLibrary() {
@@ -135,17 +191,21 @@ async function handleImport(req, res) {
   try {
     const payload = JSON.parse(await collectBody(req));
     const title = String(payload.title || '').trim();
+    const chapterTitle = String(payload.chapterTitle || payload.title || '').trim();
     const content = String(payload.content || '').trim();
-    if (!title || !content) return json(res, 400, { error: 'title and content are required' });
-    const pieces = splitChapters(content, payload.splitMode);
-    const chapters = pieces.map((chapter, index) => ({
-      id: id('chapter'),
-      partTitle: String(payload.partTitle || '').trim() || TEXT.defaultPart,
-      sectionTitle: String(payload.sectionTitle || '').trim() || TEXT.defaultSection,
-      order: index + 1,
-      title: chapter.title || TEXT.unnamedChapter,
-      content: chapter.content || ''
-    }));
+    const library = await readLibrary();
+    const existing = primaryBook(library);
+    if (!chapterTitle || !content) return json(res, 400, { error: 'chapter title and content are required' });
+    if (existing) {
+      const now = new Date().toISOString();
+      const chapter = makeChapter({ ...payload, chapterTitle, content }, existing);
+      existing.chapters.push(chapter);
+      existing.updatedAt = now;
+      chapter.updatedAt = now;
+      await writeLibrary(library);
+      return json(res, 201, { ok: true, book: normalizeLibrary({ books: [existing] }).books[0], chapter });
+    }
+    if (!title) return json(res, 400, { error: 'book title is required' });
     const now = new Date().toISOString();
     const book = {
       id: id('book'),
@@ -154,12 +214,12 @@ async function handleImport(req, res) {
       summary: String(payload.summary || '').trim(),
       createdAt: now,
       updatedAt: now,
-      chapters
+      chapters: []
     };
-    const library = await readLibrary();
+    book.chapters.push(makeChapter({ ...payload, chapterTitle, content }, book));
     library.books.unshift(book);
     await writeLibrary(library);
-    json(res, 201, { ok: true, book });
+    json(res, 201, { ok: true, book: normalizeLibrary({ books: [book] }).books[0], chapter: book.chapters[0] });
   } catch (error) {
     json(res, 500, { error: error.message || 'import failed' });
   }
@@ -170,10 +230,12 @@ async function handleUpdateBook(req, res, bookId) {
   const library = await readLibrary();
   const book = library.books.find((item) => item.id === bookId);
   if (!book) return json(res, 404, { error: 'book not found' });
+  if (payload.force !== true) return json(res, 403, { error: 'force edit is required' });
+  const now = new Date().toISOString();
   book.title = String(payload.title || book.title || '').trim() || book.title;
   book.author = String(payload.author || '').trim() || TEXT.me;
   book.summary = String(payload.summary || '').trim();
-  book.updatedAt = new Date().toISOString();
+  book.updatedAt = now;
   await writeLibrary(library);
   json(res, 200, { ok: true, book });
 }
@@ -185,6 +247,24 @@ async function handleDeleteBook(res, bookId) {
   if (library.books.length === before) return json(res, 404, { error: 'book not found' });
   await writeLibrary(library);
   json(res, 200, { ok: true });
+}
+
+async function handleCreateChapter(req, res, bookId) {
+  const payload = JSON.parse(await collectBody(req));
+  const content = String(payload.content || '').trim();
+  const title = String(payload.chapterTitle || payload.title || '').trim();
+  if (!title || !content) return json(res, 400, { error: 'chapter title and content are required' });
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  book.chapters = Array.isArray(book.chapters) ? book.chapters : [];
+  const now = new Date().toISOString();
+  const chapter = makeChapter({ ...payload, title, content }, book);
+  chapter.updatedAt = now;
+  book.chapters.push(chapter);
+  book.updatedAt = now;
+  await writeLibrary(library);
+  json(res, 201, { ok: true, book: normalizeLibrary({ books: [book] }).books[0], chapter });
 }
 
 async function handleUpdateChapter(req, res, bookId, chapterId, options = {}) {
@@ -200,7 +280,9 @@ async function handleUpdateChapter(req, res, bookId, chapterId, options = {}) {
   if (Object.prototype.hasOwnProperty.call(payload, 'title')) chapter.title = String(payload.title || '').trim() || TEXT.unnamedChapter;
   if (Object.prototype.hasOwnProperty.call(payload, 'content')) chapter.content = String(payload.content || '');
   if (options.format) chapter.content = formatContent(chapter.content);
-  book.updatedAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  chapter.updatedAt = now;
+  book.updatedAt = now;
   await writeLibrary(library);
   json(res, 200, { ok: true, book: normalizeLibrary({ books: [book] }).books[0], chapter });
 }
@@ -217,6 +299,46 @@ async function handleDeleteChapter(res, bookId, chapterId) {
   json(res, 200, { ok: true, book });
 }
 
+async function handleCreateComment(req, res, bookId, chapterId) {
+  const payload = JSON.parse(await collectBody(req));
+  const content = String(payload.content || '').trim();
+  if (!content) return json(res, 400, { error: 'comment content is required' });
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  const chapter = book.chapters.find((item) => item.id === chapterId);
+  if (!chapter) return json(res, 404, { error: 'chapter not found' });
+  chapter.comments = Array.isArray(chapter.comments) ? chapter.comments : [];
+  const comment = {
+    id: id('comment'),
+    name: String(payload.name || '').trim() || TEXT.anonymous,
+    content,
+    viewerId: String(payload.viewerId || '').trim(),
+    createdAt: new Date().toISOString()
+  };
+  chapter.comments.push(comment);
+  chapter.updatedAt = comment.createdAt;
+  book.updatedAt = comment.createdAt;
+  await writeLibrary(library);
+  json(res, 201, { ok: true, comment, book: bookForViewer(book, comment.viewerId) });
+}
+
+async function handleDeleteComment(res, bookId, chapterId, commentId) {
+  const library = await readLibrary();
+  const book = library.books.find((item) => item.id === bookId);
+  if (!book) return json(res, 404, { error: 'book not found' });
+  const chapter = book.chapters.find((item) => item.id === chapterId);
+  if (!chapter) return json(res, 404, { error: 'chapter not found' });
+  const before = Array.isArray(chapter.comments) ? chapter.comments.length : 0;
+  chapter.comments = (chapter.comments || []).filter((comment) => comment.id !== commentId);
+  if (chapter.comments.length === before) return json(res, 404, { error: 'comment not found' });
+  const now = new Date().toISOString();
+  chapter.updatedAt = now;
+  book.updatedAt = now;
+  await writeLibrary(library);
+  json(res, 200, { ok: true, book: normalizeLibrary({ books: [book] }).books[0] });
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname);
@@ -231,14 +353,20 @@ async function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (req.method === 'GET' && url.pathname === '/api/books') return json(res, 200, await readLibrary());
+  if (req.method === 'GET' && url.pathname === '/api/books') return json(res, 200, libraryForViewer(await readLibrary(), url.searchParams.get('viewer')));
   if (req.method === 'POST' && url.pathname === '/api/import') return handleImport(req, res);
   const bookMatch = url.pathname.match(/^\/api\/books\/([^/]+)$/);
   if (bookMatch && req.method === 'PUT') return handleUpdateBook(req, res, decodeURIComponent(bookMatch[1]));
   if (bookMatch && req.method === 'DELETE') return handleDeleteBook(res, decodeURIComponent(bookMatch[1]));
+  const chapterCreateMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters$/);
+  if (chapterCreateMatch && req.method === 'POST') return handleCreateChapter(req, res, decodeURIComponent(chapterCreateMatch[1]));
   const chapterMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)$/);
   if (chapterMatch && req.method === 'PUT') return handleUpdateChapter(req, res, decodeURIComponent(chapterMatch[1]), decodeURIComponent(chapterMatch[2]));
   if (chapterMatch && req.method === 'DELETE') return handleDeleteChapter(res, decodeURIComponent(chapterMatch[1]), decodeURIComponent(chapterMatch[2]));
+  const commentMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/comments$/);
+  if (commentMatch && req.method === 'POST') return handleCreateComment(req, res, decodeURIComponent(commentMatch[1]), decodeURIComponent(commentMatch[2]));
+  const commentDeleteMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/comments\/([^/]+)$/);
+  if (commentDeleteMatch && req.method === 'DELETE') return handleDeleteComment(res, decodeURIComponent(commentDeleteMatch[1]), decodeURIComponent(commentDeleteMatch[2]), decodeURIComponent(commentDeleteMatch[3]));
   const formatMatch = url.pathname.match(/^\/api\/books\/([^/]+)\/chapters\/([^/]+)\/format$/);
   if (formatMatch && req.method === 'POST') return handleUpdateChapter(null, res, decodeURIComponent(formatMatch[1]), decodeURIComponent(formatMatch[2]), { format: true });
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
