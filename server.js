@@ -7,6 +7,22 @@ const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_FILE = path.join(ROOT, 'data', 'library.json');
 const PORT = Number(process.env.PORT || 3000);
+
+// Optional admin gate for the import endpoint (set ADMIN_TOKEN env to enable).
+// When set, /import.html and POST /api/import require HTTP Basic auth (password = ADMIN_TOKEN).
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+function adminAuthorized(req) {
+  if (!ADMIN_TOKEN) return true;
+  const header = req.headers['authorization'] || '';
+  const match = header.match(/^Basic\s+(.+)$/i);
+  if (!match) return false;
+  try {
+    const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+    return decoded.endsWith(':' + ADMIN_TOKEN);
+  } catch (e) {
+    return false;
+  }
+}
 const MAX_BODY = 30 * 1024 * 1024;
 
 const TEXT = {
@@ -374,6 +390,12 @@ async function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname === '/import.html' || (req.method === 'POST' && url.pathname === '/api/import')) {
+    if (!adminAuthorized(req)) {
+      res.writeHead(401, { 'www-authenticate': 'Basic realm="Novel Admin"', 'content-type': 'text/plain; charset=utf-8' });
+      return res.end('401 Unauthorized');
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/api/books') return json(res, 200, libraryForViewer(await readLibrary(), url.searchParams.get('viewer')));
   if (req.method === 'POST' && url.pathname === '/api/import') return handleImport(req, res);
   const bookMatch = url.pathname.match(/^\/api\/books\/([^/]+)$/);
