@@ -226,8 +226,11 @@ function renderReader(options = {}) {
 function renderComments() {
   const chapter = activeChapter();
   const comments = chapter?.comments || [];
-  $('commentsCount').textContent = `${comments.length} ${UI.commentUnit}`;
-  $('commentList').innerHTML = comments.length ? comments.slice().reverse().map((comment) => `
+  const elCount = $('commentsCount');
+  const elList = $('commentList');
+  if (!elCount && !elList) return;
+  if (elCount) elCount.textContent = `${comments.length} ${UI.commentUnit}`;
+  if (elList) elList.innerHTML = comments.length ? comments.slice().reverse().map((comment) => `
     <article class="comment-item">
       <div><strong>${escapeHtml(comment.name || UI.anonymous)}</strong><time>${escapeHtml(formatDate(comment.createdAt))}${comment.approved ? '' : ` \u00b7 ${UI.pendingComment}`}</time></div>
       <p>${escapeHtml(comment.content || '')}</p>
@@ -374,7 +377,8 @@ $('fontSize').addEventListener('input', (event) => updateSetting('fontSize', Num
 $('lineHeight').addEventListener('input', (event) => updateSetting('lineHeight', Number(event.target.value)));
 $('readerWidth').addEventListener('input', (event) => updateSetting('readerWidth', Number(event.target.value)));
 $('themeSelect').addEventListener('change', (event) => updateSetting('theme', event.target.value));
-$('commentForm').addEventListener('submit', submitComment);
+const commentFormEl = $('commentForm');
+if (commentFormEl) commentFormEl.addEventListener('submit', submitComment);
 window.addEventListener('scroll', updateScrollProgress, { passive: true });
 window.addEventListener('beforeunload', saveLastRead);
 document.addEventListener('fullscreenchange', applySettings);
